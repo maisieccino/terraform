@@ -1,8 +1,12 @@
 resource "google_sql_database_instance" "db_instance" {
-  name = "main-instance"
+  name             = "main-db-instance"
+  database_version = "POSTGRES_9_6"
+  project          = "${var.google_project_name}"
+  region           = "${var.google_region}"
 
   settings {
-    tier = "db-f1-micro"
+    tier        = "db-f1-micro"
+    require_ssl = true
   }
 }
 

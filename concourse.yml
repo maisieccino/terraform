@@ -1,0 +1,72 @@
+- hosts: all
+  become: true
+
+  tasks:
+    - name: Prerequisites are present
+      apt:
+        name: "{{item}}"
+        state: present
+        cache_valid_time: 7200
+      with_items:
+        - apt-transport-https
+        - ca-certificates
+        - curl
+        - software-properties-common
+        - nginx
+        - python3
+        - python3-pip
+    - name: docker-py is installed
+      pip: name=docker-py
+    - name: add Docker GPG key
+      apt_key: url=https://download.docker.com/linux/ubuntu/gpg
+    - name: add Docker APT repository
+      apt_repository:
+        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ansible_distribution_release}} stable
+    - name: Ensure docker-ce is installed
+      apt: name=docker-ce
+    - name: Ensure dockerd is started
+      service:
+        name: docker
+        state: started
+    - name: Copy nginx config
+      copy:
+        src: ./nginx.conf
+        dest: /etc/nginx/sites-available/default
+        mode: 0644
+    - name: Ensure nginx is started
+      service:
+        name: nginx
+        state: started
+    - name: Concourse is running
+      docker_container:
+        name: concourse
+        command: quickstart
+        image: concourse/concourse:4.0.0
+        state: started
+        privileged: yes
+        ports:
+          - "8080:8080"
+        volumes:
+          - "/home/ubuntu/.postgresql:/home/ubuntu/.postgresql"
+        env:
+          # CONCOURSE_POSTGRES_DATA_SOURCE: '{{lookup("env","PG_CONN_STRING")}}'
+          CONCOURSE_POSTGRES_HOST: '{{lookup("env", "PG_HOST")}}'
+          CONCOURSE_POSTGRES_USER: '{{lookup("env", "PG_USER")}}'
+          CONCOURSE_POSTGRES_PASSWORD: '{{lookup("env", "PG_PASS")}}'
+          CONCOURSE_POSTGRES_DATABASE: '{{lookup("env", "PG_DBNAME")}}'
+          CONCOURSE_POSTGRES_SSLMODE: verify-all
+          CONCOURSE_POSTGRES_CA_CERT: "/home/ubuntu/.postgresql/root.crt"
+          CONCOURSE_POSTGRES_CLIENT_CERT: "/home/ubuntu/.postgresql/client-cert.pem"
+          CONCOURSE_POSTGRES_CLIENT_KEY: "/home/ubuntu/.postgresql/client-key.pem"
+          CONCOURSE_EXTERNAL_URL: fly.mbell.me
+          CONCOURSE_ADD_LOCAL_USER: test:$$2a$$10$$0W9/ilCpYXY/yCPpaOD.6eCrGda/fnH3D4lhsw1Mze0WTID5BuiTW
+          CONCOURSE_MAIN_TEAM_LOCAL_USER: test
+          CONCOURSE_MAIN_TEAM_ALLOW_ALL_USERS: false
+          CONCOURSE_WORKER_GARDEN_NETWORK: true
+      notify:
+        - restart nginx
+  handlers:
+    - name: restart nginx
+      service:
+        name: nginx
+        state: restarted

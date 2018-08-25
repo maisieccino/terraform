@@ -19,12 +19,16 @@ variable "concourse_instance_zone" {
 }
 
 variable "concourse_instance_type" {
-  default     = "f1-micro"
+  default     = "g1-small"
   description = "The machine type that Concourse will use"
 }
 
 variable "concourse_user" {
-  default = "concourse"
+  default = "ubuntu"
+}
+
+variable "concourse_ssh_priv_key" {
+  default = "./key"
 }
 
 variable "concourse_ssh_pub_key" {
@@ -39,4 +43,9 @@ variable "db_user" {
 variable "db_pass" {
   default     = "somestrongpassword"
   description = "Password for the database admin"
+}
+
+variable "concourse_dbname" {
+  default     = "concourse-db"
+  description = "name of the database that stores concourse data"
 }

@@ -1,5 +1,11 @@
 - hosts: all
+  remote_user: ubuntu
   become: true
+  vars:
+    domain_name: fly.mbell.me
+    letsencrypt_email: '{{ lookup("env", "LE_EMAIL") }}'
+    gh_client_id: '{{ lookup("env", "GH_CLIENT_ID") }}'
+    gh_client_secret: '{{ lookup("env", "GH_CLIENT_SECRET") }}'
 
   tasks:
     - name: Prerequisites are present
@@ -28,15 +34,45 @@
       service:
         name: docker
         state: started
-    - name: Copy nginx config
-      copy:
-        src: ./nginx.conf
-        dest: /etc/nginx/sites-available/default
-        mode: 0644
-    - name: Ensure nginx is started
-      service:
-        name: nginx
-        state: started
+
+    # setup letsencrypt
+    - name: install letsencrypt
+      apt: name=letsencrypt state=latest
+    - name: create letsencrypt directory
+      file: name=/var/www/letsencrypt state=directory
+    - name: Remove default nginx config
+      file: name=/etc/nginx/sites-enabled/default state=absent
+    - name: Install system nginx config
+      template:
+        src: templates/nginx.conf.j2
+        dest: /etc/nginx/nginx.conf
+    - name: Install nginx site for letsencrypt requests
+      template:
+        src: templates/nginx-concourse.j2
+        dest: /etc/nginx/sites-enabled/concourse
+    - name: Reload nginx to activate letsencrypt site
+      service: name=nginx state=restarted
+    - name: Create letsencrypt certificate
+      shell: letsencrypt certonly -n --webroot -w /var/www/letsencrypt -m {{ letsencrypt_email }} --agree-tos -d {{ domain_name }}
+      args:
+        creates: /etc/letsencrypt/live/{{ domain_name }}
+    - name: Generate dhparams
+      shell: openssl dhparam -out /etc/nginx/dhparams.pem 2048
+      args:
+        creates: /etc/nginx/dhparams.pem
+    - name: Install nginx site for specified site
+      template:
+        src: templates/nginx-le.j2
+        dest: /etc/nginx/sites-enabled/le
+    - name: Reload nginx to activate specified site
+      service: name=nginx state=restarted
+    - name: Add letsencrypt cronjob for cert renewal
+      cron:
+        name: letsencrypt_renewal
+        special_time: weekly
+        job: letsencrypt --renew certonly -n --webroot -w /var/www/letsencrypt -m {{ letsencrypt_email }} --agree-tos -d {{ domain_name }} && service nginx reload
+
+    # start concourse
     - name: Concourse is running
       docker_container:
         name: concourse
@@ -58,9 +94,10 @@
           CONCOURSE_POSTGRES_CA_CERT: "/home/ubuntu/.postgresql/root.crt"
           CONCOURSE_POSTGRES_CLIENT_CERT: "/home/ubuntu/.postgresql/client-cert.pem"
           CONCOURSE_POSTGRES_CLIENT_KEY: "/home/ubuntu/.postgresql/client-key.pem"
-          CONCOURSE_EXTERNAL_URL: fly.mbell.me
-          CONCOURSE_ADD_LOCAL_USER: test:$$2a$$10$$0W9/ilCpYXY/yCPpaOD.6eCrGda/fnH3D4lhsw1Mze0WTID5BuiTW
-          CONCOURSE_MAIN_TEAM_LOCAL_USER: test
+          CONCOURSE_EXTERNAL_URL: "https://fly.mbell.me"
+          CONCOURSE_GITHUB_CLIENT_ID: "{{ gh_client_id }}"
+          CONCOURSE_GITHUB_CLIENT_SECRET: "{{ gh_client_secret }}"
+          CONCOURSE_MAIN_TEAM_GITHUB_USER: "mbellgb"
           CONCOURSE_MAIN_TEAM_ALLOW_ALL_USERS: false
           CONCOURSE_WORKER_GARDEN_NETWORK: true
       notify:

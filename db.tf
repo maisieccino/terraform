@@ -8,7 +8,7 @@ resource "google_sql_database_instance" "db_instance" {
     tier = "db-f1-micro"
 
     ip_configuration {
-      require_ssl = false
+      require_ssl = true
 
       authorized_networks = [
         {
